@@ -5,6 +5,9 @@
  */
 
 #include "GenericTriggers.h"
+
+#include <string>
+
 #include "Corpse.h"
 #include "CreatureAI.h"
 #include "GenericBuffUtils.h"
@@ -14,6 +17,7 @@
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotMechanicGuard.h"
 #include "Playerbots.h"
 #include "PositionValue.h"
 #include "SharedDefines.h"
@@ -21,7 +25,6 @@
 #include "TemporarySummon.h"
 #include "ThreatManager.h"
 #include "Timer.h"
-#include <string>
 
 bool LowManaTrigger::IsActive()
 {
@@ -156,6 +159,12 @@ Value<Unit*>* DebuffOnMeleeAttackerTrigger::GetTargetValue()
 bool NoAttackersTrigger::IsActive()
 {
     return !AI_VALUE(Unit*, "current target") && AI_VALUE(uint8, "my attacker count") > 0;
+}
+
+bool MechanicMoveTrigger::IsActive()
+{
+    PlayerbotMechanicGuard* guard = PlayerbotMechanicGuard::Get();
+    return guard && guard->Active() && guard->Binds(bot);
 }
 
 bool InvalidTargetTrigger::IsActive() { return AI_VALUE2(bool, "invalid target", "current target"); }

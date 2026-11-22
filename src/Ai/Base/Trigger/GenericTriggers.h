@@ -366,6 +366,15 @@ public:
     bool IsActive() override;
 };
 
+// A module's PlayerbotMechanicGuard has a boss mechanic in force that binds this bot.
+class MechanicMoveTrigger : public Trigger
+{
+public:
+    MechanicMoveTrigger(PlayerbotAI* botAI) : Trigger(botAI, "mechanic move") {}
+
+    bool IsActive() override;
+};
+
 class InvalidTargetTrigger : public Trigger
 {
 public:

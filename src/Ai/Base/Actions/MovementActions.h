@@ -105,6 +105,17 @@ public:
     bool Execute(Event event) override;
 };
 
+// Moves the bot where a module's PlayerbotMechanicGuard says a boss mechanic in force wants it (out of its area,
+// onto its stack point, away from the others), as a forced move so ordinary movement waits for it.
+class MechanicMoveAction : public MovementAction
+{
+public:
+    MechanicMoveAction(PlayerbotAI* botAI) : MovementAction(botAI, "mechanic move") {}
+
+    bool isUseful() override;
+    bool Execute(Event event) override;
+};
+
 class AvoidAoeAction : public MovementAction
 {
 public:

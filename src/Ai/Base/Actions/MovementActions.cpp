@@ -5,9 +5,16 @@
  */
 
 #include "MovementActions.h"
+
+#include <cmath>
+#include <cstdlib>
+#include <iomanip>
+#include <string>
+
 #include "Corpse.h"
 #include "Event.h"
 #include "FleeManager.h"
+#include "G3D/Vector3.h"
 #include "GameObject.h"
 #include "LastMovementValue.h"
 #include "LootObjectStack.h"
@@ -20,6 +27,7 @@
 #include "PathGenerator.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotMechanicGuard.h"
 #include "Playerbots.h"
 #include "Position.h"
 #include "PositionValue.h"
@@ -33,11 +41,6 @@
 #include "Unit.h"
 #include "Vehicle.h"
 #include "WaypointMovementGenerator.h"
-#include "G3D/Vector3.h"
-#include <cmath>
-#include <cstdlib>
-#include <iomanip>
-#include <string>
 
 MovementAction::MovementAction(PlayerbotAI* botAI, std::string const name) : Action(botAI, name)
 {
@@ -169,6 +172,13 @@ bool MovementAction::MoveToLOS(WorldObject* target, bool ranged)
 bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool /*idle*/, bool /*react*/, bool normal_only,
                             bool exact_waypoint, MovementPriority priority, bool lessDelay, bool backwards)
 {
+    if (priority != MovementPriority::MOVEMENT_FORCED && mapId == bot->GetMapId())
+    {
+        PlayerbotMechanicGuard* guard = PlayerbotMechanicGuard::Get();
+        if (guard && guard->Active() && guard->MechanicRefuses(bot, x, y, z))
+            return false;
+    }
+
     UpdateMovementState();
     if (!IsMovingAllowed())
     {
@@ -1867,6 +1877,31 @@ bool FleeWithPetAction::Execute(Event /*event*/)
         botAI->PetFollow();
 
     return Flee(AI_VALUE(Unit*, "current target"));
+}
+
+bool MechanicMoveAction::isUseful()
+{
+    PlayerbotMechanicGuard* guard = PlayerbotMechanicGuard::Get();
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    return guard && guard->Active() && guard->MechanicSpot(bot, x, y, z);
+}
+
+bool MechanicMoveAction::Execute(Event /*event*/)
+{
+    PlayerbotMechanicGuard* guard = PlayerbotMechanicGuard::Get();
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    if (!guard || !guard->Active() || !guard->MechanicSpot(bot, x, y, z))
+        return false;
+
+    if (!MoveTo(bot->GetMapId(), x, y, z, false, false, false, false, MovementPriority::MOVEMENT_FORCED, true))
+        return false;
+
+    guard->MechanicMoved(bot);
+    return true;
 }
 
 bool AvoidAoeAction::isUseful()

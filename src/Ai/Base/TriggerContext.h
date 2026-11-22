@@ -215,6 +215,7 @@ public:
         creators["move stuck"] = &TriggerContext::move_stuck;
         creators["move long stuck"] = &TriggerContext::move_long_stuck;
         creators["combat stuck"] = &TriggerContext::combat_stuck;
+        creators["mechanic move"] = &TriggerContext::mechanic_move;
         creators["combat long stuck"] = &TriggerContext::combat_long_stuck;
 
         creators["petition signed"] = &TriggerContext::petition_signed;
@@ -432,6 +433,7 @@ private:
     static Trigger* move_stuck(PlayerbotAI* botAI) { return new MoveStuckTrigger(botAI); }
     static Trigger* move_long_stuck(PlayerbotAI* botAI) { return new MoveLongStuckTrigger(botAI); }
     static Trigger* combat_stuck(PlayerbotAI* botAI) { return new CombatStuckTrigger(botAI); }
+    static Trigger* mechanic_move(PlayerbotAI* botAI) { return new MechanicMoveTrigger(botAI); }
     static Trigger* combat_long_stuck(PlayerbotAI* botAI) { return new CombatLongStuckTrigger(botAI); }
     static Trigger* player_wants_in_bg(PlayerbotAI* botAI) { return new PlayerWantsInBattlegroundTrigger(botAI); }
     static Trigger* petition_signed(PlayerbotAI* botAI) { return new PetitionTurnInTrigger(botAI); }

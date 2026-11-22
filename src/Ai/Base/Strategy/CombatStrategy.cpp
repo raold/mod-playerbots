@@ -34,6 +34,9 @@ void CombatStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
             }
         )
     );
+    // A boss mechanic another module has in force (PlayerbotMechanicGuard): above the raid strategies' positioning
+    // while it lasts, below every emergency. Nothing fires until a module installs a guard.
+    triggers.push_back(new TriggerNode("mechanic move", {NextAction("mechanic move", ACTION_RAID + 9)}));
     triggers.push_back(
         new TriggerNode(
             "combat stuck",

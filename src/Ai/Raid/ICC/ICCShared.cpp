@@ -278,6 +278,13 @@ IccValithriaHealing IccValithriaHealingValue::Calculate()
     if (!group)
         return result;
 
+    Creature* dragon = bot->FindNearestCreature(NPC_VALITHRIA_DREAMWALKER, 100.0f);
+    // Dream healers remain allocated while the dragon is in the other phase.
+    if (!dragon && !bot->HasAura(SPELL_DREAM_STATE))
+        return result;
+    if (dragon)
+        result.Dragon = dragon->GetGUID();
+
     std::vector<RaidInteractions::Healer> healers;
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
@@ -291,8 +298,6 @@ IccValithriaHealing IccValithriaHealingValue::Calculate()
             result.LowestNearbyHealthPct = std::min(result.LowestNearbyHealthPct, member->GetHealthPct());
     }
     result.RaidHealer = RaidInteractions::HealRaid(bot->GetGUID().GetRawValue(), std::move(healers));
-    if (Creature* dragon = bot->FindNearestCreature(NPC_VALITHRIA_DREAMWALKER, 100.0f))
-        result.Dragon = dragon->GetGUID();
     if (Creature* worm = bot->FindNearestCreature(NPC_ROT_WORM, 100.0f))
         result.Worm = worm->GetGUID();
     if (Creature* zombie = bot->FindNearestCreature(NPC_BLISTERING_ZOMBIE, 100.0f))

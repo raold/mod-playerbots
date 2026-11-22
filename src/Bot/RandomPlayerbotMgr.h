@@ -139,8 +139,8 @@ public:
     bool IsAddclassBot(Player* bot);
     bool IsAddclassBot(ObjectGuid::LowType bot);
     // Replaces the pinned set; world thread. keep: ProcessBot and Revive skip randomize, refresh+teleport,
-    // revive-teleport and the rndbot-leader group leave for them. online: always in currentBots and logged in,
-    // regardless of bot_count, and never logged out on "add" expiry. Only RNDbot (type 1) accounts; returns how many.
+    // revive-teleport and the rndbot-leader group leave for them. online: stays in currentBots regardless of bot_count
+    // and ignores "add" expiry; DisabledWithoutRealPlayer still controls login/logout. Only RNDbot (type 1) accounts.
     uint32 SetPinnedBots(std::unordered_set<ObjectGuid::LowType> const& bots, bool keep, bool online);
     bool IsPinned(ObjectGuid::LowType bot) const;  // any thread
     void Randomize(Player* bot);

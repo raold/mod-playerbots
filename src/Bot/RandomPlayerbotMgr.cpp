@@ -357,8 +357,6 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
     }
 
     GetBots();
-    if (_pinOnline)
-        LoginPinnedBots();
 
     // Copied deliberately: ProcessBot() erases from currentBots while this is
     // being iterated below, so the loops must run over a snapshot.
@@ -423,6 +421,11 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
     {
         AddRandomBots();
     }
+
+    // Pinning does not override the server's no-player shutdown or its login delay.
+    if (_pinOnline && (!sPlayerbotAIConfig.DisabledWithoutRealPlayer ||
+                       (realPlayerIsLogged && DelayLoginBotsTimer != 0 && time(nullptr) >= DelayLoginBotsTimer)))
+        LoginPinnedBots();
 
     // If the randombot population requires a trim this cycle, it is not executed when DisabledWithoutRealPlayer is
     // enabled and there are no real players logged-in. In that case, DisabledWithoutRealPlayer handles logouts.
@@ -1678,33 +1681,32 @@ bool RandomPlayerbotMgr::ProcessBot(Player* bot)
     if (bot->InBattlegroundQueue())
         return false;
 
-     uint32 botId = bot->GetGUID().GetCounter();
+    uint32 botId = bot->GetGUID().GetCounter();
 
-     // Must precede the death and group-leave blocks: a pinned bot may lead a raid of bots.
-     if (KeepPinned(botId))
-         return ProcessPinnedBot(bot);
+    // Must precede the death and group-leave blocks: a pinned bot may lead a raid of bots.
+    if (KeepPinned(botId))
+        return ProcessPinnedBot(bot);
 
-     // if death revive
-     if (bot->isDead())
-     {
-         if (!GetEventValue(botId, "dead"))
-         {
-             uint32 randomTime =
-                 urand(sPlayerbotAIConfig.MinRandomBotReviveTime, sPlayerbotAIConfig.MaxRandomBotReviveTime);
-             LOG_DEBUG("playerbots", "Mark bot {} as dead, will be revived in {}s.", bot->GetName().c_str(),
-                       randomTime);
-             SetEventValue(botId, "dead", 1, DAY);
-             SetEventValue(botId, "revive", 1, randomTime);
-             return false;
-         }
+    // if death revive
+    if (bot->isDead())
+    {
+        if (!GetEventValue(botId, "dead"))
+        {
+            uint32 randomTime =
+                urand(sPlayerbotAIConfig.MinRandomBotReviveTime, sPlayerbotAIConfig.MaxRandomBotReviveTime);
+            LOG_DEBUG("playerbots", "Mark bot {} as dead, will be revived in {}s.", bot->GetName().c_str(), randomTime);
+            SetEventValue(botId, "dead", 1, DAY);
+            SetEventValue(botId, "revive", 1, randomTime);
+            return false;
+        }
 
-         if (!GetEventValue(botId, "revive"))
-         {
-             Revive(bot);
-             return true;
-         }
+        if (!GetEventValue(botId, "revive"))
+        {
+            Revive(bot);
+            return true;
+        }
 
-         return false;
+        return false;
     }
 
     // leave group if leader is rndbot

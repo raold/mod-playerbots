@@ -5,9 +5,16 @@
  */
 
 #include "MovementActions.h"
+
+#include <cmath>
+#include <cstdlib>
+#include <iomanip>
+#include <string>
+
 #include "Corpse.h"
 #include "Event.h"
 #include "FleeManager.h"
+#include "G3D/Vector3.h"
 #include "GameObject.h"
 #include "LastMovementValue.h"
 #include "LootObjectStack.h"
@@ -20,6 +27,7 @@
 #include "PathGenerator.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotHazardFilter.h"
 #include "Playerbots.h"
 #include "Position.h"
 #include "PositionValue.h"
@@ -33,11 +41,6 @@
 #include "Unit.h"
 #include "Vehicle.h"
 #include "WaypointMovementGenerator.h"
-#include "G3D/Vector3.h"
-#include <cmath>
-#include <cstdlib>
-#include <iomanip>
-#include <string>
 
 MovementAction::MovementAction(PlayerbotAI* botAI, std::string const name) : Action(botAI, name)
 {
@@ -1876,7 +1879,14 @@ bool AvoidAoeAction::isUseful()
 
     GuidVector traps = AI_VALUE(GuidVector, "nearest trap with damage");
     GuidVector triggers = AI_VALUE(GuidVector, "possible triggers");
-    return AI_VALUE(Aura*, "area debuff") || !traps.empty() || !triggers.empty();
+    if (AI_VALUE(Aura*, "area debuff") || !traps.empty() || !triggers.empty())
+        return true;
+
+    PlayerbotHazardFilter* filter = PlayerbotHazardFilter::Get();
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    return filter && filter->HazardExit(bot, x, y, z);
 }
 
 bool AvoidAoeAction::Execute(Event /*event*/)
@@ -1896,7 +1906,24 @@ bool AvoidAoeAction::Execute(Event /*event*/)
     {
         return true;
     }
+    // Case #4: a hazard another module's PlayerbotHazardFilter knows the bot stands in
+    if (AvoidFilteredHazard())
+    {
+        return true;
+    }
     return false;
+}
+
+bool AvoidAoeAction::AvoidFilteredHazard()
+{
+    PlayerbotHazardFilter* filter = PlayerbotHazardFilter::Get();
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    if (!filter || !filter->HazardExit(bot, x, y, z))
+        return false;
+
+    return MoveTo(bot->GetMapId(), x, y, z, false, false, false, false, MovementPriority::MOVEMENT_COMBAT);
 }
 
 bool AvoidAoeAction::AvoidAuraWithDynamicObj()

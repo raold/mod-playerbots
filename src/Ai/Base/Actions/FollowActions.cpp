@@ -5,18 +5,21 @@
  */
 
 #include "FollowActions.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+
 #include "Event.h"
 #include "Formations.h"
 #include "LastMovementValue.h"
 #include "Map.h"
 #include "MotionMaster.h"
 #include "PlayerbotAI.h"
+#include "PlayerbotHazardFilter.h"
 #include "Playerbots.h"
 #include "ServerFacade.h"
 #include "Transport.h"
-#include <algorithm>
-#include <array>
-#include <cmath>
 
 namespace
 {
@@ -93,6 +96,19 @@ namespace
         outY = lastY;
         outZ = masterZ; // keep deck-level Z to encourage stepping onto the platform/boat
         return true;
+    }
+
+    void KeepOffHazards(Player* bot, WorldLocation& loc)
+    {
+        PlayerbotHazardFilter* filter = PlayerbotHazardFilter::Get();
+        if (!filter || loc.GetMapId() != bot->GetMapId())
+            return;
+
+        float x = loc.GetPositionX();
+        float y = loc.GetPositionY();
+        float z = loc.GetPositionZ();
+        if (filter->SafeFollowSpot(bot, x, y, z))
+            loc.Relocate(x, y, z);
     }
 }
 
@@ -216,6 +232,7 @@ bool FollowAction::Execute(Event /*event*/)
         if (Formation::IsNullLocation(loc) || loc.GetMapId() == MAPID_INVALID)
             return false;
 
+        KeepOffHazards(bot, loc);
         MovementPriority priority = botAI->GetState() == BOT_STATE_COMBAT ? MovementPriority::MOVEMENT_COMBAT : MovementPriority::MOVEMENT_NORMAL;
         moved = MoveTo(loc.GetMapId(), loc.GetPositionX(), loc.GetPositionY(), loc.GetPositionZ(), false, false, false,
                        true, priority, true);
@@ -282,6 +299,7 @@ bool FollowAction::isUseful()
         if (Formation::IsNullLocation(loc) || bot->GetMapId() != loc.GetMapId())
             return false;
 
+        KeepOffHazards(bot, loc);
         distance = bot->GetDistance(loc.GetPositionX(), loc.GetPositionY(), loc.GetPositionZ());
     }
     if (botAI->HasStrategy("master fishing", BOT_STATE_NON_COMBAT))

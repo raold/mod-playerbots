@@ -10,23 +10,24 @@
 #include "GDValueContext.h"
 #include "GruulValueContext.h"
 #include "HyjalValueContext.h"
+#include "ICCValueContext.h"
 #include "MagValueContext.h"
 #include "MechValueContext.h"
 #include "MgTValueContext.h"
 #include "SSCValueContext.h"
 #include "TKValueContext.h"
 #include "UBValueContext.h"
-#include "ZAValueContext.h"
 #include "ValueContext.h"
+#include "ZAValueContext.h"
 
-void AiObjectContext::BuildSharedValueContexts(
-    SharedNamedObjectContextList<UntypedValue>& valueContexts)
+void AiObjectContext::BuildSharedValueContexts(SharedNamedObjectContextList<UntypedValue>& valueContexts)
 {
     valueContexts.Add(new ValueContext());
     valueContexts.Add(new RaidAq40ValueContext());
     valueContexts.Add(new RaidBlackTempleValueContext());
     valueContexts.Add(new RaidGruulsLairValueContext());
     valueContexts.Add(new RaidHyjalValueContext());
+    valueContexts.Add(new RaidIccValueContext());
     valueContexts.Add(new RaidMagtheridonValueContext());
     valueContexts.Add(new RaidSscValueContext());
     valueContexts.Add(new RaidTempestKeepValueContext());

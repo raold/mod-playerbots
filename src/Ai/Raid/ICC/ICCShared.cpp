@@ -10,11 +10,13 @@
 #include <list>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "Engine.h"
 #include "ICCActions.h"
 #include "ICCScripts.h"
 #include "ICCTriggers.h"
+#include "ICCValueContext.h"
 #include "InstanceScript.h"
 #include "LastSpellCastValue.h"
 #include "Playerbots.h"
@@ -246,75 +248,101 @@ bool IccAnyBloodPrincePresent(PlayerbotAI* botAI)
            AI_VALUE2(Unit*, "find target", "prince keleseth");
 }
 
+IccValithriaHealing IccValithriaHealingValue::Get()
+{
+    Group* group = bot->GetGroup();
+    if (!bot->IsInWorld() || bot->GetMapId() != ICC_MAP_ID || !bot->IsAlive() || !group || IsSelfBot(bot) ||
+        !PlayerbotAI::IsHeal(bot))
+    {
+        Reset();
+        return {};
+    }
+
+    // Never carry an allocation or nearby-health result into another party, instance or phase.
+    if (_group != group->GetGUID() || _mapId != bot->GetMapId() || _instanceId != bot->GetInstanceId() ||
+        _phaseMask != bot->GetPhaseMask())
+    {
+        Reset();
+        _group = group->GetGUID();
+        _mapId = bot->GetMapId();
+        _instanceId = bot->GetInstanceId();
+        _phaseMask = bot->GetPhaseMask();
+    }
+    return CalculatedValue<IccValithriaHealing>::Get();
+}
+
+IccValithriaHealing IccValithriaHealingValue::Calculate()
+{
+    IccValithriaHealing result;
+    Group* group = bot->GetGroup();
+    if (!group)
+        return result;
+
+    std::vector<RaidInteractions::Healer> healers;
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!member || !member->IsInWorld() || !member->IsAlive() || member->GetMap() != bot->GetMap())
+            continue;
+        // Dream healers remain allocated; only reachable members influence party healing.
+        if (!IsSelfBot(member) && PlayerbotAI::IsHeal(member))
+            healers.push_back({member->GetGUID().GetRawValue(), member->getClass() == CLASS_DRUID});
+        if (member->InSamePhase(bot) && bot->IsWithinDistInMap(member, sPlayerbotAIConfig.HealDistance * 2.0f))
+            result.LowestNearbyHealthPct = std::min(result.LowestNearbyHealthPct, member->GetHealthPct());
+    }
+    result.RaidHealer = RaidInteractions::HealRaid(bot->GetGUID().GetRawValue(), std::move(healers));
+    if (Creature* dragon = bot->FindNearestCreature(NPC_VALITHRIA_DREAMWALKER, 100.0f))
+        result.Dragon = dragon->GetGUID();
+    if (Creature* worm = bot->FindNearestCreature(NPC_ROT_WORM, 100.0f))
+        result.Worm = worm->GetGUID();
+    if (Creature* zombie = bot->FindNearestCreature(NPC_BLISTERING_ZOMBIE, 100.0f))
+        result.Zombie = zombie->GetGUID();
+    return result;
+}
+
 namespace
 {
-std::vector<RaidInteractions::Healer> ValithriaHealers(Player* bot)
+IccValithriaHealing ValithriaHealing(Player* bot)
 {
-    std::vector<RaidInteractions::Healer> healers;
-    Group* group = bot->GetGroup();
-    if (!group)
-        return healers;
-    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
-    {
-        Player* member = ref->GetSource();
-        if (!member || !member->IsInWorld() || !member->IsAlive() || member->GetMap() != bot->GetMap() ||
-            IsSelfBot(member) || !PlayerbotAI::IsHeal(member))
-            continue;
-        // Dream healers remain in the allocation while in the other phase.
-        healers.push_back({member->GetGUID().GetRawValue(), member->getClass() == CLASS_DRUID});
-    }
-    return healers;
+    PlayerbotAI* ai = GET_PLAYERBOT_AI(bot);
+    return ai ? ai->GetAiObjectContext()->GetValue<IccValithriaHealing>("icc valithria healing")->Get()
+              : IccValithriaHealing{};
 }
 
-// Lowest health % of the living group members in this healer's phase within the radius the stock
-// "party member to heal" search covers (twice the heal distance); 100 when nobody there is hurt.
-float ValithriaLowestNearby(Player* bot)
+Creature* ValithriaCachedCreature(Player* bot, ObjectGuid guid)
 {
-    float lowest = 100.0f;
-    Group* group = bot->GetGroup();
-    if (!group)
-        return lowest;
-    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
-    {
-        Player* member = ref->GetSource();
-        if (!member || !member->IsInWorld() || !member->IsAlive() || member->GetMap() != bot->GetMap() ||
-            !member->InSamePhase(bot) || !bot->IsWithinDistInMap(member, sPlayerbotAIConfig.HealDistance * 2.0f))
-            continue;
-        lowest = std::min(lowest, member->GetHealthPct());
-    }
-    return lowest;
-}
-
-bool ValithriaChasedBy(Player* bot, uint32 entry)
-{
-    Creature* add = bot->FindNearestCreature(entry, 100.0f);
-    return add && add->GetVictim() == bot;
+    Creature* creature = guid.IsEmpty() ? nullptr : bot->GetMap()->GetCreature(guid);
+    return creature && creature->IsAlive() && creature->InSamePhase(bot) && bot->IsWithinDistInMap(creature, 100.0f)
+               ? creature
+               : nullptr;
 }
 }  // namespace
 
-std::optional<bool> IccValithriaShouldHealRaid(Player* bot)
-{
-    return RaidInteractions::HealRaid(bot->GetGUID().GetRawValue(), ValithriaHealers(bot));
-}
+std::optional<bool> IccValithriaShouldHealRaid(Player* bot) { return ValithriaHealing(bot).RaidHealer; }
 
 std::optional<bool> IccValithriaHealsDragon(Player* bot)
 {
-    auto const raidHealer = IccValithriaShouldHealRaid(bot);
-    if (!raidHealer.has_value())
+    auto const healing = ValithriaHealing(bot);
+    if (!healing.RaidHealer.has_value())
         return std::nullopt;
-    if (!*raidHealer)
-        return true;
-    return RaidInteractions::HealsDragon(true, ValithriaLowestNearby(bot), bot->GetPowerPct(POWER_MANA));
+    return RaidInteractions::HealsDragon(*healing.RaidHealer, healing.LowestNearbyHealthPct,
+                                         bot->GetPowerPct(POWER_MANA));
 }
 
 bool IccValithriaOnDragon(Player* bot)
 {
-    if (!bot->IsAlive() || !PlayerbotAI::IsHeal(bot) || bot->HasAura(SPELL_DREAM_STATE) || bot->HealthBelowPct(50) ||
-        !bot->FindNearestCreature(NPC_VALITHRIA_DREAMWALKER, 100.0f))
+    if (!bot->IsInWorld() || !bot->IsAlive() || !PlayerbotAI::IsHeal(bot) || bot->HasAura(SPELL_DREAM_STATE) ||
+        bot->HealthBelowPct(50))
         return false;
-    if (ValithriaChasedBy(bot, NPC_ROT_WORM) || ValithriaChasedBy(bot, NPC_BLISTERING_ZOMBIE))
+    auto const healing = ValithriaHealing(bot);
+    if (!healing.RaidHealer.has_value() || !ValithriaCachedCreature(bot, healing.Dragon))
         return false;
-    return IccValithriaHealsDragon(bot).value_or(false);
+    Creature* worm = ValithriaCachedCreature(bot, healing.Worm);
+    Creature* zombie = ValithriaCachedCreature(bot, healing.Zombie);
+    if ((worm && worm->GetVictim() == bot) || (zombie && zombie->GetVictim() == bot))
+        return false;
+    return RaidInteractions::HealsDragon(*healing.RaidHealer, healing.LowestNearbyHealthPct,
+                                         bot->GetPowerPct(POWER_MANA));
 }
 
 void IccValithriaNoteHeal(Player* bot, char const* outcome, bool cast)
@@ -325,10 +353,7 @@ void IccValithriaNoteHeal(Player* bot, char const* outcome, bool cast)
         ++note.casts;
 }
 
-bool IccValithriaCanUsePortal(Player* bot)
-{
-    return RaidInteractions::CanUsePortal(bot->GetGUID().GetRawValue(), ValithriaHealers(bot));
-}
+bool IccValithriaCanUsePortal(Player* bot) { return RaidInteractions::CanUsePortal(ValithriaHealing(bot).RaidHealer); }
 
 namespace
 {

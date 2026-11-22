@@ -148,11 +148,7 @@ inline std::string_view LastExecutedAction(std::string_view trace)
     return {};
 }
 
-inline bool CanUsePortal(std::uint64_t guid, std::vector<Healer> const& healers)
-{
-    auto const raidHealer = HealRaid(guid, healers);
-    return healers.size() > 1 && raidHealer.has_value() && !*raidHealer;
-}
+inline bool CanUsePortal(std::optional<bool> raidHealer) { return raidHealer.has_value() && !*raidHealer; }
 
 inline bool AffordableHeal(std::int32_t cost, std::uint32_t mana)
 {

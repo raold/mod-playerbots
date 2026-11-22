@@ -52,9 +52,9 @@ int main()
     CHECK(WantedEssence(Colour::Dark, 34497, Colour::None, Colour::Light) == Colour::Light);
     CHECK(WantedEssence(Colour::Light, 34496, Colour::None, Colour::Dark) == Colour::Dark);
     CHECK(!HealRaid(101, {}).has_value());
-    CHECK(!CanUsePortal(101, {}));
+    CHECK(!CanUsePortal(HealRaid(101, {})));
     CHECK(HealRaid(101, {{101, true}}) == true);  // A lone healer is the raid's, and tops the dragon when it can.
-    CHECK(!CanUsePortal(101, {{101, true}}));
+    CHECK(!CanUsePortal(HealRaid(101, {{101, true}})));
     CHECK(HealRaid(101, {{101, true}, {102, false}}) == true);
     CHECK(HealRaid(102, {{101, true}, {102, false}}) == false);
 
@@ -73,7 +73,7 @@ int main()
                 auto const assignment = HealRaid(healer.guid, roster);
                 CHECK(assignment.has_value());
                 surface += *assignment;
-                portal += CanUsePortal(healer.guid, roster);
+                portal += CanUsePortal(assignment);
                 auto reversed = roster;
                 std::reverse(reversed.begin(), reversed.end());
                 CHECK(HealRaid(healer.guid, reversed) == assignment);
@@ -82,7 +82,7 @@ int main()
             CHECK(count == 1 || surface < count);
             CHECK(count == 1 ? portal == 0 : portal + surface == count);
             CHECK(!HealRaid(1, roster).has_value());
-            CHECK(!CanUsePortal(1, roster));
+            CHECK(!CanUsePortal(HealRaid(1, roster)));
         }
 
     // Dragon healers always heal her; raid healers only while nobody they could heal is hurt

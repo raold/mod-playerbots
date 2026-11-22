@@ -107,6 +107,7 @@ public:
     bool Enabled;
     bool DisabledWithoutRealPlayer;
     bool EnableICCBuffs;
+    bool TwinValkyrInteractions;
     bool AllowAccountBots, AllowGuildBots, AllowTrustedAccountBots;
     bool RandomBotGuildNearby, RandomBotInvitePlayer, InviteChat;
     uint32 GlobalCoolDown, ReactDelay, MaxWaitForMove, DisableMoveSplinePath, MaxMovementSearchTime, ExpireActionTime,

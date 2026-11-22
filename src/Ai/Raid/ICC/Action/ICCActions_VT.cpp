@@ -4,6 +4,9 @@
  * or (at your option) any later version.
  */
 
+#include <unordered_map>
+#include <unordered_set>
+
 #include "GenericSpellActions.h"
 #include "ICCActions.h"
 #include "ICCTriggers.h"
@@ -11,10 +14,9 @@
 #include "NearestNpcsValue.h"
 #include "ObjectAccessor.h"
 #include "Playerbots.h"
+#include "RaidInteractionPolicy.h"
 #include "RtiValue.h"
 #include "Vehicle.h"
-#include <unordered_map>
-#include <unordered_set>
 
 namespace
 {
@@ -705,8 +707,16 @@ bool IccValithriaGroupAction::Handle10ManGroupLogic()
 
 bool IccValithriaPortalAction::Execute(Event /*event*/)
 {
-    if (!PlayerbotAI::IsHeal(bot) || bot->HasAura(SPELL_DREAM_STATE))
+    if (bot->GetMapId() != 631)
         return false;
+    uint32 const instanceId = bot->GetMap()->GetInstanceId();
+    auto& claims = IcecrownHelpers::IccState(instanceId).vtPortalClaim;
+    if (!bot->IsAlive() || !PlayerbotAI::IsHeal(bot) || bot->HasAura(SPELL_DREAM_STATE) ||
+        !IccValithriaCanUsePortal(bot) || !bot->FindNearestCreature(NPC_VALITHRIA_DREAMWALKER, 100.0f))
+    {
+        claims.erase(bot->GetGUID());
+        return false;
+    }
 
     // Healer just dropped Dream State - if still airborne (portal exit leaves
     // bots above the floor) snap to floor Z immediately so they don't fall and die.
@@ -726,9 +736,6 @@ bool IccValithriaPortalAction::Execute(Event /*event*/)
     // Evict stale claims BEFORE early-return so claims don't leak after fight.
     // Scope eviction to this instance only - other ICC instances have their
     // own portal GUID universes and we must not erase their claims.
-    uint32 const instanceId = bot->GetMap()->GetInstanceId();
-    auto& claims = IcecrownHelpers::IccState(instanceId).vtPortalClaim;
-
     std::unordered_set<ObjectGuid> livePortalGuids;
     for (Creature* p : preEffectPortals)
         if (p)
@@ -739,7 +746,10 @@ bool IccValithriaPortalAction::Execute(Event /*event*/)
 
     for (auto it = claims.begin(); it != claims.end();)
     {
-        if (!livePortalGuids.count(it->second))
+        Player* owner = ObjectAccessor::GetPlayer(*bot, it->first);
+        if (!livePortalGuids.count(it->second) || !owner || !owner->IsInWorld() || !owner->IsAlive() ||
+            owner->GetMap() != bot->GetMap() || owner->HasAura(SPELL_DREAM_STATE) || owner->IsBeingTeleported() ||
+            !IccValithriaCanUsePortal(owner))
             it = claims.erase(it);
         else
             ++it;
@@ -774,42 +784,21 @@ bool IccValithriaPortalAction::Execute(Event /*event*/)
         return best;
     };
 
-    // Prefer pre-effect (claim early so others see it). Fall through to real
-    // portal if no pre-effect available.
-    Creature* assigned = nullptr;
-    if (!preEffectPortals.empty())
-        assigned = pickClosestUnreserved(preEffectPortals);
-    if (!assigned && !realPortals.empty())
-        assigned = pickClosestUnreserved(realPortals);
-
-    // If everything reserved (more healers than portals), fall back to nearest
-    // overall so this healer still does something useful.
+    // Use an available real portal before waiting on a later pre-effect.
+    Creature* assigned = pickClosestUnreserved(realPortals);
     if (!assigned)
-    {
-        std::vector<Creature*> const& pool = !preEffectPortals.empty() ? preEffectPortals : realPortals;
-        float bestDist = FLT_MAX;
-        for (Creature* p : pool)
-        {
-            if (!p)
-                continue;
-            float const d = bot->GetExactDist2d(p);
-            if (d < bestDist)
-            {
-                bestDist = d;
-                assigned = p;
-            }
-        }
-    }
+        assigned = pickClosestUnreserved(preEffectPortals);
 
     if (!assigned)
         return false;
 
     claims[bot->GetGUID()] = assigned->GetGUID();
 
+    bool moved = false;
     if (bot->GetDistance2d(assigned->GetPositionX(), assigned->GetPositionY()) > 0.5f)
     {
-        MoveTo(assigned->GetMapId(), assigned->GetPositionX(), assigned->GetPositionY(), assigned->GetPositionZ(),
-               false, false, false, true, MovementPriority::MOVEMENT_NORMAL);
+        moved = MoveTo(assigned->GetMapId(), assigned->GetPositionX(), assigned->GetPositionY(),
+                       assigned->GetPositionZ(), false, false, false, true, MovementPriority::MOVEMENT_NORMAL);
     }
 
     botAI->RemoveShapeshift();
@@ -820,9 +809,10 @@ bool IccValithriaPortalAction::Execute(Event /*event*/)
     float minDist = FLT_MAX;
     for (Creature* portal : realPortals)
     {
-        if (!portal)
+        if (!portal || reservedPortals.count(portal->GetGUID()) || !portal->HasNpcFlag(UNIT_NPC_FLAG_SPELLCLICK) ||
+            !portal->InSamePhase(bot))
             continue;
-        float const d = bot->GetDistance2d(portal);
+        float const d = bot->GetDistance(portal);
         if (d < 3.0f && d < minDist)
         {
             clickTarget = portal;
@@ -840,12 +830,16 @@ bool IccValithriaPortalAction::Execute(Event /*event*/)
         return true;
     }
 
-    return false;
+    return moved || (bot->isMoving() &&
+                     IsDuplicateMove(assigned->GetPositionX(), assigned->GetPositionY(), assigned->GetPositionZ()));
 }
 
 bool IccValithriaHealAction::Execute(Event /*event*/)
 {
-    if (!PlayerbotAI::IsHeal(bot))
+    if (bot->GetMapId() != 631 || !bot->IsAlive() || !PlayerbotAI::IsHeal(bot) || bot->HasAura(SPELL_DREAM_STATE))
+        return false;
+    Creature* valithria = bot->FindNearestCreature(NPC_VALITHRIA_DREAMWALKER, 100.0f);
+    if (!valithria || !IccValithriaHealsDragon(bot).value_or(false))
         return false;
 
     // Snap to floor Z first - healer may have just dropped Dream State and be
@@ -856,7 +850,10 @@ bool IccValithriaHealAction::Execute(Event /*event*/)
         bot->TeleportTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), TARGET_Z, bot->GetOrientation());
 
     if (bot->GetHealthPct() < 50.0f)
+    {
+        IccValithriaNoteHeal(bot, "low_hp", false);
         return false;
+    }
 
     if (!bot->HasAura(SPELL_DREAM_STATE))
     {
@@ -866,57 +863,77 @@ bool IccValithriaHealAction::Execute(Event /*event*/)
         bot->SetSpeed(MOVE_FLIGHT, NORMAL_SPEED, true);
     }
 
-    Creature* valithria = bot->FindNearestCreature(NPC_VALITHRIA_DREAMWALKER, 100.0f);
-    if (!valithria)
+    if (bot->HasAura(SPELL_DREAM_STATE) || !valithria->IsAlive() || valithria->IsFullHealth())
         return false;
+    if (!bot->IsWithinLOSInMap(valithria))
+    {
+        IccValithriaNoteHeal(bot, "los", false);
+        return MoveToLOS(valithria, true);
+    }
+    if (!bot->IsWithinDistInMap(valithria, 30.0f))
+    {
+        IccValithriaNoteHeal(bot, "range", false);
+        return MoveNear(valithria, 25.0f);
+    }
+    if (bot->isMoving())
+        bot->StopMoving();
 
+    std::vector<uint32> choices;
+    auto offer = [&](char const* name, uint8 stacks = 0)
+    {
+        uint32 const spell = context->GetValue<uint32>("spell id", name)->Get();
+        if (!spell)
+            return;
+        Aura* aura = valithria->GetAura(spell, bot->GetGUID());
+        if (!stacks || !aura || aura->GetStackAmount() < stacks)
+            choices.push_back(spell);
+    };
     switch (bot->getClass())
     {
         case CLASS_DRUID:
-        {
-            constexpr uint32 SPELL_REJUVENATION = 48441;
-            constexpr uint32 SPELL_REGROWTH = 48443;
-            constexpr uint32 SPELL_LIFEBLOOM = 48451;
-            constexpr uint32 SPELL_WILD_GROWTH = 53251;
-            constexpr uint8 LIFEBLOOM_MAX = 3;
-
-            if (!valithria->HasAura(SPELL_REJUVENATION, bot->GetGUID()))
-                return botAI->CastSpell(SPELL_REJUVENATION, valithria);
-
-            if (!valithria->HasAura(SPELL_REGROWTH, bot->GetGUID()))
-                return botAI->CastSpell(SPELL_REGROWTH, valithria);
-
-            Aura* lb = valithria->GetAura(SPELL_LIFEBLOOM, bot->GetGUID());
-            if (!lb || lb->GetStackAmount() < LIFEBLOOM_MAX)
-                return botAI->CastSpell(SPELL_LIFEBLOOM, valithria);
-
-            return botAI->CastSpell(SPELL_WILD_GROWTH, valithria);
-        }
-        case CLASS_SHAMAN:
-        {
-            constexpr uint32 SPELL_RIPTIDE = 61301;
-            constexpr uint32 SPELL_HEALING_WAVE = 49273;
-            return valithria->HasAura(SPELL_RIPTIDE, bot->GetGUID()) ? botAI->CastSpell(SPELL_HEALING_WAVE, valithria)
-                                                                     : botAI->CastSpell(SPELL_RIPTIDE, valithria);
-        }
-        case CLASS_PRIEST:
-        {
-            constexpr uint32 SPELL_RENEW = 48068;
-            constexpr uint32 SPELL_GREATER_HEAL = 48063;
-            return valithria->HasAura(SPELL_RENEW, bot->GetGUID()) ? botAI->CastSpell(SPELL_GREATER_HEAL, valithria)
-                                                                   : botAI->CastSpell(SPELL_RENEW, valithria);
-        }
-        case CLASS_PALADIN:
-        {
-            constexpr uint32 SPELL_BEACON = 53563;
-            constexpr uint32 SPELL_HOLY_LIGHT = 48782;
-            return valithria->HasAura(SPELL_BEACON, bot->GetGUID()) ? botAI->CastSpell(SPELL_HOLY_LIGHT, valithria)
-                                                                    : botAI->CastSpell(SPELL_BEACON, valithria);
-        }
-        default:
+            offer("rejuvenation", 1);
+            offer("regrowth", 1);
+            offer("lifebloom", 3);
+            offer("nourish");
+            offer("healing touch");
             break;
+        case CLASS_SHAMAN:
+            offer("riptide", 1);
+            offer("healing wave");
+            break;
+        case CLASS_PRIEST:
+            offer("renew", 1);
+            offer("greater heal");
+            offer("flash heal");
+            break;
+        case CLASS_PALADIN:
+            // No Beacon of Light: it only takes a party or raid member (TARGET_UNIT_TARGET_RAID).
+            offer("holy light");
+            offer("flash of light");
+            break;
+        default:
+            return false;
     }
-    return false;
+    uint32 const spell = RaidInteractions::FirstReadyHeal(
+        choices,
+        [&](uint32 candidate)
+        {
+            // CanCastSpell deliberately probes with IGNORE_POWER: check affordability
+            // here so a costly heal cannot starve a cheaper, usable fallback.
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(candidate);
+            return info && info->PowerType == POWER_MANA &&
+                   RaidInteractions::AffordableHeal(info->CalcPowerCost(bot, info->GetSchoolMask()),
+                                                    bot->GetPower(POWER_MANA)) &&
+                   botAI->CanCastSpell(candidate, valithria, true);
+        });
+    if (!spell)
+    {
+        IccValithriaNoteHeal(bot, "no_spell", false);
+        return false;
+    }
+    bool const cast = botAI->CastSpell(spell, valithria);
+    IccValithriaNoteHeal(bot, cast ? "cast" : "cast_failed", cast);
+    return cast;
 }
 
 bool IccValithriaDreamCloudAction::Execute(Event /*event*/)

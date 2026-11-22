@@ -307,6 +307,7 @@ bool PlayerbotAIConfig::Initialize()
     //////////////////////////// ICC
 
     EnableICCBuffs = sConfigMgr->GetOption<bool>("Playerbots.EnableICCBuffs", true);
+    TwinValkyrInteractions = sConfigMgr->GetOption<bool>("Playerbots.TwinValkyrInteractions", false);
 
     //////////////////////////// Professions
     ClassMatchingProfessionChance =

@@ -93,7 +93,16 @@ bool IccBossHasRemorselessWinter(Unit* boss);
 bool IccBossCastingRemorselessWinter(Unit* boss);
 bool IccAnyGroupMemberHasAura(Player* bot, uint32 spellId);
 bool IccAnyBloodPrincePresent(PlayerbotAI* botAI);
+// Valithria: reserved raid healer (nullopt when not one of her healers).
 std::optional<bool> IccValithriaShouldHealRaid(Player* bot);
+// Whether this healer's casts go to the dragon this tick (raid healers only while the raid is fine).
+std::optional<bool> IccValithriaHealsDragon(Player* bot);
+// The dragon heal trigger's whole condition: a living, healthy healer outside the dream, not chased.
+bool IccValithriaOnDragon(Player* bot);
+bool IccValithriaCanUsePortal(Player* bot);
+void IccValithriaNoteHeal(Player* bot, char const* outcome, bool cast);
+// Playerbots.log every 5 s while her encounter is in progress (ICCScripts.cpp calls it from her update).
+void IccValithriaWatch(Creature* valithria);
 std::vector<Creature*> IccGetCreaturesByEntries(WorldObject* searcher, std::initializer_list<uint32> entries,
                                                 float range);
 

@@ -783,6 +783,11 @@ float IccValithriaDreamCloudMultiplier::GetValue(Action* action)
         if (dynamic_cast<DpsAssistAction*>(action) || dynamic_cast<AttackRtiTargetAction*>(action))
             return 0.0f;
 
+    // A healer on the dragon stays on her: stock "reach party member to heal" (holy paladins run it at
+    // ACTION_EMERGENCY + 3) would otherwise pull it off after any hurt member out of range.
+    if (boss && dynamic_cast<ReachPartyMemberToHealAction*>(action) && IccValithriaOnDragon(bot))
+        return 0.0f;
+
     if (bot->HasAura(SPELL_DREAM_STATE) && !bot->HealthBelowPct(50))
     {
         if (dynamic_cast<IccValithriaDreamCloudAction*>(action))

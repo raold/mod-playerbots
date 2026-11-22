@@ -5,15 +5,18 @@
  */
 
 #include "ICCScripts.h"
+
+#include <algorithm>
+#include <mutex>
+
 #include "Creature.h"
+#include "ICCShared.h"
 #include "ICCTriggers.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
 #include "SpellInfo.h"
 #include "Timer.h"
-#include <algorithm>
-#include <mutex>
 
 namespace
 {
@@ -174,6 +177,18 @@ public:
     }
 };
 
+class IccValithriaWatchScript : public AllCreatureScript
+{
+public:
+    IccValithriaWatchScript() : AllCreatureScript("IccValithriaWatchScript") {}
+
+    void OnAllCreatureUpdate(Creature* creature, uint32 /*diff*/) override
+    {
+        if (creature && creature->GetEntry() == NPC_VALITHRIA_DREAMWALKER && creature->GetMapId() == ICC_MAP_ID)
+            IccValithriaWatch(creature);
+    }
+};
+
 class IccMapCleanupScript : public AllMapScript
 {
 public:
@@ -192,5 +207,6 @@ void AddSC_IcecrownBotScripts()
     new IccRotfaceListenerScript();
     new IccLichKingListenerScript();
     new IccBossStateResetScript();
+    new IccValithriaWatchScript();
     new IccMapCleanupScript();
 }

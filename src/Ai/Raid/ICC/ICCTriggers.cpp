@@ -693,18 +693,14 @@ bool IccValithriaPortalTrigger::IsActive()
     if (aura && aura->GetStackAmount() >= 25)
         return false;
 
-    // Only healers should use portals
-    if (!PlayerbotAI::IsHeal(bot) || bot->HasAura(SPELL_DREAM_STATE))
+    // Keep a healer outside, including when deaths reduce the available roster.
+    if (!PlayerbotAI::IsHeal(bot) || bot->HasAura(SPELL_DREAM_STATE) || !IccValithriaCanUsePortal(bot))
         return false;
 
     Creature* worm = bot->FindNearestCreature(NPC_ROT_WORM, 100.0f);
     Creature* zombie = bot->FindNearestCreature(NPC_BLISTERING_ZOMBIE, 100.0f);
 
     if ((worm && worm->GetVictim() == bot) || (zombie && zombie->GetVictim() == bot))
-        return false;
-
-    auto const shouldHealRaid = IccValithriaShouldHealRaid(bot);
-    if (!shouldHealRaid.has_value() || *shouldHealRaid)
         return false;
 
     // Find the nearest portal creature
@@ -721,37 +717,9 @@ bool IccValithriaPortalTrigger::IsActive()
 
 bool IccValithriaHealTrigger::IsActive()
 {
-    Unit* boss = bot->FindNearestCreature(NPC_VALITHRIA_DREAMWALKER, 100.0f);
-    if (!boss)
-        return false;
-
-    // Only healers should use healing
-    if (!PlayerbotAI::IsHeal(bot) || bot->HasAura(SPELL_DREAM_STATE) || bot->HealthBelowPct(50))
-        return false;
-
-    Creature* worm = bot->FindNearestCreature(NPC_ROT_WORM, 100.0f);
-    Creature* zombie = bot->FindNearestCreature(NPC_BLISTERING_ZOMBIE, 100.0f);
-
-    if ((worm && worm->GetVictim() == bot) || (zombie && zombie->GetVictim() == bot))
-        return false;
-
-    auto const shouldHealRaid = IccValithriaShouldHealRaid(bot);
-    if (!shouldHealRaid.has_value() || *shouldHealRaid)
-        return false;
-
-    if (bot->GetHealthPct() < 50.0f)
-        return false;
-
-    // For Valithria healers, check portal logic
-    // If no portal is found within 100 yards, we should heal
-    if (!bot->FindNearestCreature(NPC_DREAM_PORTAL, 100.0f) && !bot->FindNearestCreature(NPC_NIGHTMARE_PORTAL, 100.0f))
-        return true;
-
-    if (bot->FindNearestCreature(NPC_DREAM_PORTAL, 10.0f) || bot->FindNearestCreature(NPC_NIGHTMARE_PORTAL, 10.0f))
-        return false;
-
-    // If portal is far but within 100 yards, heal while moving to it
-    return true;
+    // Dragon healers, and the raid healers while nobody they can reach is hurt. The higher-priority
+    // portal action owns travel/clicks; a portal reserved by another healer does not stop this one.
+    return IccValithriaOnDragon(bot);
 }
 
 bool IccValithriaDreamCloudTrigger::IsActive()

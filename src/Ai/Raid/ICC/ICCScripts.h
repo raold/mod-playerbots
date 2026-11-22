@@ -60,6 +60,18 @@ namespace IcecrownHelpers
         uint32 moveOnAfterMs = 0;
     };
 
+    struct ValithriaHealNote
+    {
+        uint32 casts = 0;           // dragon heals cast since the last watch line
+        char const* outcome = "-";  // the heal action's last result
+    };
+
+    struct ValithriaWatch
+    {
+        bool engaged = false;
+        uint32 lastMs = 0;
+    };
+
     struct SpreadSlotState
     {
         uint32 lastCallMs = 0;
@@ -112,6 +124,8 @@ namespace IcecrownHelpers
 
         ValithriaCloudSync vtCloudSync;
         std::map<ObjectGuid, ObjectGuid> vtPortalClaim;
+        std::map<ObjectGuid, ValithriaHealNote> vtHealNotes;
+        ValithriaWatch vtWatch;
 
         Position gsbLastStarPos;
         std::map<ObjectGuid, uint32> gsbLastRocketPackUse;

@@ -5,6 +5,15 @@
  */
 
 #include "PlayerbotAI.h"
+
+#include <algorithm>
+#include <cfloat>
+#include <cmath>
+#include <map>
+#include <mutex>
+#include <sstream>
+#include <string>
+
 #include "AiFactory.h"
 #include "BudgetValues.h"
 #include "ChannelMgr.h"
@@ -36,6 +45,7 @@
 #include "Player.h"
 #include "PlayerbotAIConfig.h"
 #include "PlayerbotGuildMgr.h"
+#include "PlayerbotMechanicGuard.h"
 #include "PlayerbotMgr.h"
 #include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
@@ -56,13 +66,6 @@
 #include "UpdateTime.h"
 #include "Vehicle.h"
 #include "WsgRouteState.h"
-#include <algorithm>
-#include <cfloat>
-#include <cmath>
-#include <map>
-#include <mutex>
-#include <sstream>
-#include <string>
 
 namespace
 {
@@ -266,6 +269,15 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     if (!bot || !bot->GetSession() || !bot->IsInWorld() || bot->IsBeingTeleported() ||
         bot->GetSession()->IsLoggingOut() || bot->IsDuringRemoveFromWorld())
         return;
+
+    // Retire autonomous follow before delays, reactions or encounter multipliers can skip movement actions.
+    PlayerbotMechanicGuard* mechanicGuard = PlayerbotMechanicGuard::Get();
+    if (mechanicGuard && mechanicGuard->Active() &&
+        bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE && mechanicGuard->Binds(bot))
+    {
+        bot->GetMotionMaster()->Clear();
+        bot->StopMoving();
+    }
 
     // Bots send no movement opcodes, so m_lastFallZ stays frozen and Player::IsFalling() (a Z test
     // against it) blocks LFG teleports. Unit::IsFalling() is the flag test, so real falls keep theirs.

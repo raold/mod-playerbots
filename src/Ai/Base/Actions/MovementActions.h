@@ -107,7 +107,6 @@ public:
 
 // Moves the bot where a module's PlayerbotMechanicGuard says a boss mechanic in force wants it (out of its area,
 // onto its stack point, away from the others), as a forced move so ordinary movement waits for it.
-// Also stops existing autonomous follow motion while bound, even if no new destination is needed.
 class MechanicMoveAction : public MovementAction
 {
 public:

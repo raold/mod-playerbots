@@ -23,7 +23,7 @@ public:
     // True while the module has a mechanic in force anywhere; every caller asks this first.
     virtual bool Active() const = 0;
 
-    // A lookup, no geometry: a mechanic in force binds this bot (the trigger's question).
+    // A lookup, no geometry: binds this bot for the trigger and to retire autonomous follow on its next update.
     virtual bool Binds(Player* bot) = 0;
 
     // Where the bot must move now for a mechanic in force: out of its area, onto its stack point or away from the

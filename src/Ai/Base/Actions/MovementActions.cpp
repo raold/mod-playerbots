@@ -1104,18 +1104,8 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
     bool const guardedFollow = guard && guard->Active() && guard->Binds(bot);
     MovementPriority const priority =
         botAI->GetState() == BOT_STATE_COMBAT ? MovementPriority::MOVEMENT_COMBAT : MovementPriority::MOVEMENT_NORMAL;
-    if (guardedFollow)
-    {
-        if (IsWaitingForLastMove(priority))
-            return false;
-
-        // An existing follow generator would keep choosing destinations without asking the guard.
-        if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
-        {
-            bot->GetMotionMaster()->Clear();
-            bot->StopMoving();
-        }
-    }
+    if (guardedFollow && IsWaitingForLastMove(priority))
+        return false;
 
     if (!bot->InBattleground() && ServerFacade::instance().IsDistanceLessOrEqualThan(ServerFacade::instance().GetDistance2d(bot, target),
                                                                            sPlayerbotAIConfig.FollowDistance))
@@ -1919,9 +1909,6 @@ bool MechanicMoveAction::isUseful()
     if (!guard || !guard->Active() || !guard->Binds(bot))
         return false;
 
-    if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
-        return !IsWaitingForLastMove(MovementPriority::MOVEMENT_FORCED);
-
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
@@ -1934,26 +1921,14 @@ bool MechanicMoveAction::Execute(Event /*event*/)
     if (!guard || !guard->Active() || !guard->Binds(bot))
         return false;
 
-    bool stoppedFollow = false;
-    if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
-    {
-        if (IsWaitingForLastMove(MovementPriority::MOVEMENT_FORCED))
-            return false;
-
-        // Close followers may never run Follow again; retire their autonomous endpoint updates here.
-        bot->GetMotionMaster()->Clear();
-        bot->StopMoving();
-        stoppedFollow = true;
-    }
-
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
     if (!guard->MechanicSpot(bot, x, y, z))
-        return stoppedFollow;
+        return false;
 
     if (!MoveTo(bot->GetMapId(), x, y, z, false, false, false, false, MovementPriority::MOVEMENT_FORCED, true))
-        return stoppedFollow;
+        return false;
 
     guard->MechanicMoved(bot);
     return true;

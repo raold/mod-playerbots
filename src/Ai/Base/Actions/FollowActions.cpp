@@ -98,19 +98,19 @@ namespace
         return true;
     }
 
-    void KeepOffHazards(Player* bot, WorldLocation& loc)
-    {
-        PlayerbotHazardFilter* filter = PlayerbotHazardFilter::Get();
-        if (!filter || loc.GetMapId() != bot->GetMapId())
-            return;
+void KeepOffHazards(Player* bot, WorldLocation& loc)
+{
+    PlayerbotHazardFilter* filter = PlayerbotHazardFilter::Get();
+    if (!filter || loc.GetMapId() != bot->GetMapId())
+        return;
 
-        float x = loc.GetPositionX();
-        float y = loc.GetPositionY();
-        float z = loc.GetPositionZ();
-        if (filter->SafeFollowSpot(bot, x, y, z))
-            loc.Relocate(x, y, z);
-    }
+    float x = loc.GetPositionX();
+    float y = loc.GetPositionY();
+    float z = loc.GetPositionZ();
+    if (filter->SafeFollowSpot(bot, x, y, z))
+        loc.Relocate(x, y, z);
 }
+}  // namespace
 
 bool FollowAction::Execute(Event /*event*/)
 {

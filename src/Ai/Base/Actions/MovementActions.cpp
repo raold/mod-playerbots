@@ -1916,23 +1916,44 @@ bool FleeWithPetAction::Execute(Event /*event*/)
 bool MechanicMoveAction::isUseful()
 {
     PlayerbotMechanicGuard* guard = PlayerbotMechanicGuard::Get();
+    if (!guard || !guard->Active() || !guard->Binds(bot))
+        return false;
+
+    if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+        return !IsWaitingForLastMove(MovementPriority::MOVEMENT_FORCED);
+
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
-    return guard && guard->Active() && guard->MechanicSpot(bot, x, y, z);
+    return guard->MechanicSpot(bot, x, y, z);
 }
 
 bool MechanicMoveAction::Execute(Event /*event*/)
 {
     PlayerbotMechanicGuard* guard = PlayerbotMechanicGuard::Get();
+    if (!guard || !guard->Active() || !guard->Binds(bot))
+        return false;
+
+    bool stoppedFollow = false;
+    if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+    {
+        if (IsWaitingForLastMove(MovementPriority::MOVEMENT_FORCED))
+            return false;
+
+        // Close followers may never run Follow again; retire their autonomous endpoint updates here.
+        bot->GetMotionMaster()->Clear();
+        bot->StopMoving();
+        stoppedFollow = true;
+    }
+
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;
-    if (!guard || !guard->Active() || !guard->MechanicSpot(bot, x, y, z))
-        return false;
+    if (!guard->MechanicSpot(bot, x, y, z))
+        return stoppedFollow;
 
     if (!MoveTo(bot->GetMapId(), x, y, z, false, false, false, false, MovementPriority::MOVEMENT_FORCED, true))
-        return false;
+        return stoppedFollow;
 
     guard->MechanicMoved(bot);
     return true;

@@ -5,18 +5,21 @@
  */
 
 #include "FollowActions.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+
 #include "Event.h"
 #include "Formations.h"
 #include "LastMovementValue.h"
 #include "Map.h"
 #include "MotionMaster.h"
 #include "PlayerbotAI.h"
+#include "PlayerbotMechanicGuard.h"
 #include "Playerbots.h"
 #include "ServerFacade.h"
 #include "Transport.h"
-#include <algorithm>
-#include <array>
-#include <cmath>
 
 namespace
 {
@@ -102,8 +105,11 @@ bool FollowAction::Execute(Event /*event*/)
     std::string const target = formation->GetTargetName();
 
     // Transport handling for moving transports only (boats/zeppelins).
+    // Bound bots use the guarded movement below, including its forced-move wait.
+    PlayerbotMechanicGuard* guard = PlayerbotMechanicGuard::Get();
+    bool const guardedFollow = guard && guard->Active() && guard->Binds(bot);
     Player* master = botAI->GetMaster();
-    if (master && master->IsInWorld() && bot->IsInWorld() && bot->GetMapId() == master->GetMapId())
+    if (!guardedFollow && master && master->IsInWorld() && bot->IsInWorld() && bot->GetMapId() == master->GetMapId())
     {
         Map* map = master->GetMap();
         uint32 const mapId = bot->GetMapId();

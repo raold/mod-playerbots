@@ -1100,6 +1100,23 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
     if (!target)
         return false;
 
+    PlayerbotMechanicGuard* guard = PlayerbotMechanicGuard::Get();
+    bool const guardedFollow = guard && guard->Active() && guard->Binds(bot);
+    MovementPriority const priority =
+        botAI->GetState() == BOT_STATE_COMBAT ? MovementPriority::MOVEMENT_COMBAT : MovementPriority::MOVEMENT_NORMAL;
+    if (guardedFollow)
+    {
+        if (IsWaitingForLastMove(priority))
+            return false;
+
+        // An existing follow generator would keep choosing destinations without asking the guard.
+        if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+        {
+            bot->GetMotionMaster()->Clear();
+            bot->StopMoving();
+        }
+    }
+
     if (!bot->InBattleground() && ServerFacade::instance().IsDistanceLessOrEqualThan(ServerFacade::instance().GetDistance2d(bot, target),
                                                                            sPlayerbotAIConfig.FollowDistance))
     {
@@ -1239,6 +1256,23 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
     {
         // botAI->TellError("No need to follow");
         return false;
+    }
+
+    if (guardedFollow)
+    {
+        if (!bot->IsInMap(target))
+            return false;
+
+        Position destination = target->GetPosition();
+        target->MovePositionToFirstCollision(destination, bot->GetCombatReach() + distance, angle);
+        float x = destination.GetPositionX();
+        float y = destination.GetPositionY();
+        float z = destination.GetPositionZ();
+        if (bot->IsHovering())
+            bot->UpdateAllowedPositionZ(x, y, z);
+
+        // Use a checked destination rather than a follow generator that can move its endpoint later.
+        return MoveTo(target->GetMapId(), x, y, z, false, false, false, true, priority, true);
     }
 
     bot->HandleEmoteCommand(0);

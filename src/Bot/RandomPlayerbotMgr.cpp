@@ -357,6 +357,9 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 /*elapsed*/, bool /*minimal*/)
     }
 
     GetBots();
+    if (_pinOnline)
+        LoginPinnedBots();
+
     // Copied deliberately: ProcessBot() erases from currentBots while this is
     // being iterated below, so the loops must run over a snapshot.
     std::unordered_set<uint32> availableBots = currentBots;
@@ -852,6 +855,10 @@ uint32 RandomPlayerbotMgr::AddRandomBots()
 bool RandomPlayerbotMgr::IsRemovableBot(Player* bot)
 {
     if (!bot || !bot->IsInWorld() || !IsRandomBot(bot))
+        return false;
+
+    // A pinned bot stays online whatever the target count.
+    if (_pinOnline && IsPinned(bot->GetGUID().GetCounter()))
         return false;
 
     if (bot->IsInCombat())
@@ -1565,6 +1572,12 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
     uint32 isValid = GetEventValue(bot, "add");
     if (!isValid)
     {
+        if (_pinOnline && IsPinned(bot))
+        {
+            SetEventValue(bot, "add", 1, YEAR);
+            return false;
+        }
+
         if (!player || !player->GetGroup())
         {
             if (player)
@@ -1667,27 +1680,31 @@ bool RandomPlayerbotMgr::ProcessBot(Player* bot)
 
      uint32 botId = bot->GetGUID().GetCounter();
 
-    // if death revive
-    if (bot->isDead())
-    {
-        if (!GetEventValue(botId, "dead"))
-        {
-            uint32 randomTime =
-                urand(sPlayerbotAIConfig.MinRandomBotReviveTime, sPlayerbotAIConfig.MaxRandomBotReviveTime);
-            LOG_DEBUG("playerbots", "Mark bot {} as dead, will be revived in {}s.", bot->GetName().c_str(),
-                      randomTime);
-            SetEventValue(botId, "dead", 1, DAY);
-            SetEventValue(botId, "revive", 1, randomTime);
-            return false;
-        }
+     // Must precede the death and group-leave blocks: a pinned bot may lead a raid of bots.
+     if (KeepPinned(botId))
+         return ProcessPinnedBot(bot);
 
-        if (!GetEventValue(botId, "revive"))
-        {
-            Revive(bot);
-            return true;
-        }
+     // if death revive
+     if (bot->isDead())
+     {
+         if (!GetEventValue(botId, "dead"))
+         {
+             uint32 randomTime =
+                 urand(sPlayerbotAIConfig.MinRandomBotReviveTime, sPlayerbotAIConfig.MaxRandomBotReviveTime);
+             LOG_DEBUG("playerbots", "Mark bot {} as dead, will be revived in {}s.", bot->GetName().c_str(),
+                       randomTime);
+             SetEventValue(botId, "dead", 1, DAY);
+             SetEventValue(botId, "revive", 1, randomTime);
+             return false;
+         }
 
-        return false;
+         if (!GetEventValue(botId, "revive"))
+         {
+             Revive(bot);
+             return true;
+         }
+
+         return false;
     }
 
     // leave group if leader is rndbot
@@ -1772,9 +1789,153 @@ bool RandomPlayerbotMgr::ProcessBot(Player* bot)
     return false;
 }
 
+namespace
+{
+constexpr time_t PINNED_BOT_LOGIN_CHECK_INTERVAL = 30;
+}  // namespace
+
+uint32 RandomPlayerbotMgr::SetPinnedBots(std::unordered_set<ObjectGuid::LowType> const& bots, bool keep, bool online)
+{
+    std::unordered_set<uint32> const rndBotAccounts(rndBotTypeAccounts.begin(), rndBotTypeAccounts.end());
+    std::unordered_set<uint32> accepted;
+    for (ObjectGuid::LowType bot : bots)
+    {
+        uint32 accountId = sCharacterCache->GetCharacterAccountIdByGuid(ObjectGuid::Create<HighGuid::Player>(bot));
+        if (rndBotAccounts.contains(accountId))
+            accepted.insert(bot);
+    }
+
+    uint32 const acceptedCount = accepted.size();
+    {
+        std::lock_guard<std::mutex> lock(_pinnedBotsLock);
+        _pinnedBots = std::move(accepted);
+        _pinKeep = keep;
+        _pinOnline = online;
+    }
+    _pinLoginCheckTimer = 0;
+
+    LOG_INFO("playerbots", "Pinned {} random bots (keep={}, online={}); {} rejected: not on a random-bot account",
+             acceptedCount, keep, online, bots.size() - acceptedCount);
+    return acceptedCount;
+}
+
+bool RandomPlayerbotMgr::IsPinned(ObjectGuid::LowType bot) const
+{
+    std::lock_guard<std::mutex> lock(_pinnedBotsLock);
+    return _pinnedBots.contains(bot);
+}
+
+bool RandomPlayerbotMgr::KeepPinned(ObjectGuid::LowType bot) const
+{
+    if (!_pinKeep.load(std::memory_order_relaxed))
+        return false;
+
+    std::lock_guard<std::mutex> lock(_pinnedBotsLock);
+    return _pinKeep.load(std::memory_order_relaxed) && _pinnedBots.contains(bot);
+}
+
+void RandomPlayerbotMgr::LoginPinnedBots()
+{
+    time_t const now = time(nullptr);
+    if (now < _pinLoginCheckTimer + PINNED_BOT_LOGIN_CHECK_INTERVAL)
+        return;
+
+    _pinLoginCheckTimer = now;
+
+    std::unordered_set<uint32> pinned;
+    {
+        std::lock_guard<std::mutex> lock(_pinnedBotsLock);
+        pinned = _pinnedBots;
+    }
+
+    uint32 logins = 0;
+    for (uint32 bot : pinned)
+    {
+        if (logins >= sPlayerbotAIConfig.RandomBotsPerInterval)
+            break;
+
+        if (GetPlayerBot(bot))
+            continue;
+
+        if (!GetEventValue(bot, "add"))
+            SetEventValue(bot, "add", 1, YEAR);
+
+        SetEventValue(bot, "logout", 0, 0);
+        currentBots.insert(bot);
+        ProcessBot(bot);
+        ++logins;
+    }
+}
+
+bool RandomPlayerbotMgr::ProcessPinnedBot(Player* bot)
+{
+    uint32 const botId = bot->GetGUID().GetCounter();
+
+    if (bot->isDead())
+    {
+        // Revival inside an instance is left to the group, so a bot-led raid never sees a member stand up mid-pull.
+        if (bot->GetMap()->IsDungeon())
+            return false;
+
+        if (!GetEventValue(botId, "dead"))
+        {
+            SetEventValue(botId, "dead", 1, DAY);
+            SetEventValue(botId, "revive", 1,
+                          urand(sPlayerbotAIConfig.MinRandomBotReviveTime, sPlayerbotAIConfig.MaxRandomBotReviveTime));
+            return false;
+        }
+
+        if (GetEventValue(botId, "revive"))
+            return false;
+
+        RevivePinnedBotInPlace(bot);
+        return true;
+    }
+
+    if (!GetEventValue(botId, "randomize"))
+    {
+        ScheduleRandomize(
+            botId, urand(sPlayerbotAIConfig.MinRandomBotRandomizeTime, sPlayerbotAIConfig.MaxRandomBotRandomizeTime));
+        LOG_INFO("playerbots", "Pinned bot #{}: kept, skipped randomize", botId);
+    }
+
+    if (!GetEventValue(botId, "teleport"))
+    {
+        ScheduleTeleport(botId, urand(sPlayerbotAIConfig.MinRandomBotTeleportInterval,
+                                      sPlayerbotAIConfig.MaxRandomBotTeleportInterval));
+        LOG_INFO("playerbots", "Pinned bot #{}: kept, skipped refresh and teleport", botId);
+    }
+
+    return false;
+}
+
+void RandomPlayerbotMgr::RevivePinnedBotInPlace(Player* bot)
+{
+    if (bot->GetMap()->IsDungeon())
+        return;
+
+    uint32 const botId = bot->GetGUID().GetCounter();
+
+    SetEventValue(botId, "dead", 0, 0);
+    SetEventValue(botId, "revive", 0, 0);
+    if (!bot->isDead())
+        return;
+
+    bot->ResurrectPlayer(1.0f);
+    bot->SpawnCorpseBones();
+    LOG_INFO("playerbots", "Pinned bot #{}: revived in place", botId);
+}
+
 void RandomPlayerbotMgr::Revive(Player* player)
 {
     uint32 bot = player->GetGUID().GetCounter();
+
+    // Also reached from FindCorpseAction; Refresh would leave the group and the teleport would split it.
+    if (KeepPinned(bot))
+    {
+        RevivePinnedBotInPlace(player);
+        return;
+    }
 
     // LOG_INFO("playerbots", "Bot {} revived", player->GetName().c_str());
     SetEventValue(bot, "dead", 0, 0);

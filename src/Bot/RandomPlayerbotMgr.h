@@ -7,16 +7,18 @@
 #ifndef PLAYERBOTS_RANDOMPLAYERBOTMGR_H
 #define PLAYERBOTS_RANDOMPLAYERBOTMGR_H
 
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <mutex>
+#include <set>
+#include <unordered_set>
+
 #include "GameTime.h"
 #include "NewRpgInfo.h"
 #include "ObjectGuid.h"
 #include "PlayerbotCommandServer.h"
 #include "PlayerbotMgr.h"
-#include <algorithm>
-#include <array>
-#include <mutex>
-#include <set>
-#include <unordered_set>
 
 struct BattlegroundInfo
 {
@@ -136,6 +138,11 @@ public:
     bool IsRandomBot(ObjectGuid::LowType bot);
     bool IsAddclassBot(Player* bot);
     bool IsAddclassBot(ObjectGuid::LowType bot);
+    // Replaces the pinned set; world thread. keep: ProcessBot and Revive skip randomize, refresh+teleport,
+    // revive-teleport and the rndbot-leader group leave for them. online: always in currentBots and logged in,
+    // regardless of bot_count, and never logged out on "add" expiry. Only RNDbot (type 1) accounts; returns how many.
+    uint32 SetPinnedBots(std::unordered_set<ObjectGuid::LowType> const& bots, bool keep, bool online);
+    bool IsPinned(ObjectGuid::LowType bot) const;  // any thread
     void Randomize(Player* bot);
     void Clear(Player* bot);
     void RandomizeFirst(Player* bot);
@@ -300,6 +307,16 @@ private:
     // Written on the world thread, read from map threads.
     std::set<std::pair<uint32, uint32>> _playerZones;
     std::mutex _playerZonesLock;
+    // Written on the world thread, read from map threads.
+    std::unordered_set<uint32> _pinnedBots;
+    std::atomic<bool> _pinKeep{false};
+    bool _pinOnline = false;
+    time_t _pinLoginCheckTimer = 0;
+    mutable std::mutex _pinnedBotsLock;
+    bool KeepPinned(ObjectGuid::LowType bot) const;
+    void LoginPinnedBots();
+    bool ProcessPinnedBot(Player* bot);
+    void RevivePinnedBotInPlace(Player* bot);
 
     // Account lists
     std::vector<uint32> rndBotTypeAccounts;             // Accounts marked as RNDbot (type 1)
